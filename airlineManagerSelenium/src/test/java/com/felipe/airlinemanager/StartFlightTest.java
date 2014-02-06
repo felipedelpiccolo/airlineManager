@@ -59,11 +59,11 @@ public class StartFlightTest{
     driver.get("http://apps.facebook.com/airline_manager/");
     
     //Login To FB
-    WebElement emailInput = driver.findElement(By.id("email"));    
-    emailInput.sendKeys("felipao_8_7@hotmail.com");    
-    WebElement pswInput = driver.findElement(By.id("pass"));
-    pswInput.sendKeys("681231531fb");    
-    WebElement sendInput = driver.findElement(By.id("u_0_1"));
+
+    //Wait 10 seconds until user enters credentials
+    Thread.sleep(10000);    
+
+    WebElement sendInput = driver.findElement(By.id("u_0_0"));
     sendInput.click();
     
     Thread.sleep(5000);
