@@ -6,6 +6,7 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -35,9 +36,17 @@ public class StartFlightTest{
   
   private static ChromeDriverService chromeService;
   
+  private List<String> flightRegsToSkipStart = new ArrayList<String>();
+  
   @Before
   public void setUp() throws Exception {
-	
+	  
+	  
+//	  flightRegsToSkipStart.add("BOE37");
+//	  flightRegsToSkipStart.add("BOE7");
+//	  flightRegsToSkipStart.add("BOE27");
+//	  flightRegsToSkipStart.add("BOE36");
+	  
 //	  chromeService = new ChromeDriverService.Builder()
 //	  						.usingDriverExecutable(new File(chromeDriverPath))
 //	  						.usingAnyFreePort()
@@ -61,7 +70,7 @@ public class StartFlightTest{
     //Login To FB
 
     //Wait 10 seconds until user enters credentials
-    Thread.sleep(10000);    
+    Thread.sleep(20000);    
 
     WebElement sendInput = driver.findElement(By.id("u_0_0"));
     sendInput.click();
@@ -125,11 +134,11 @@ public class StartFlightTest{
 
 		System.out.println("checking flight to start....");
 		
-		if (container.findElements(By.xpath(".//a")).size() != 0){
+		String flightReg = driver.findElement(By.xpath("//*[@id='routeStarter']/table/tbody/tr[2]/td[5]")).getText().trim();
+		
+		if (container.findElements(By.xpath(".//a")).size() != 0 && !flightRegsToSkipStart.contains(flightReg)){
 			
 			System.out.println("starting flight....");
-			
-			String flightReg = driver.findElement(By.xpath("//*[@id='routeStarter']/table/tbody/tr[2]/td[5]")).getText().trim();
 			
 			container.findElement(By.xpath(".//a")).click();
 			Thread.sleep(10000);
