@@ -12,20 +12,35 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.FileHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 
 import org.junit.*;
-
 import org.openqa.selenium.*;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeDriverService;
 import org.openqa.selenium.firefox.FirefoxDriver;
 import org.openqa.selenium.remote.DesiredCapabilities;
+import org.openqa.selenium.remote.ErrorHandler.UnknownServerException;
 import org.openqa.selenium.remote.RemoteWebDriver;
 
 public class StartFlightTest{
 
+	private static final Logger logger = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
+		    
+	
   private WebDriver driver;
-  private String baseUrl;
+  
+  private static final String baseUrl = "https://apps.facebook.com/airline_manager/";
+  
+  private static final String flightsUrl = "https://apps.facebook.com/airline_manager/route.php?token=flight";
+  
+  private static final String fuelPurchaseUrl = "https://airlinemanager.activewebs.dk/am/fuel.php?amount=";
+  private static final int MAX_FUEL_VALUE = 200;
+  private static final int MIN_FUEL_VALUE = 50;
+  private static final int TANK_CAPACITY = 1000000000;
   
   private String dbFilePath = this.getClass().getResource("/db/flightsLogs.sqlite").getPath().replace("target/test-classes","src/test/resources");
   
@@ -41,24 +56,23 @@ public class StartFlightTest{
   @Before
   public void setUp() throws Exception {
 	  
+	  FileHandler logFile = new FileHandler(StartFlightTest.class.getCanonicalName()+".log");
+	  logFile.setFormatter(new SimpleFormatter());
+	  logger.addHandler(logFile);
 	  
-//	  flightRegsToSkipStart.add("BOE37");
-//	  flightRegsToSkipStart.add("BOE7");
-//	  flightRegsToSkipStart.add("BOE27");
-//	  flightRegsToSkipStart.add("BOE36");
+	  logger.setLevel(Level.FINEST);
 	  
-//	  chromeService = new ChromeDriverService.Builder()
-//	  						.usingDriverExecutable(new File(chromeDriverPath))
-//	  						.usingAnyFreePort()
-//	  						.build();
-//	  
-//	 chromeService.start();	  
-//	  
-//    driver = new RemoteWebDriver(chromeService.getUrl(),DesiredCapabilities.chrome());
+	  chromeService = new ChromeDriverService.Builder()
+	  						.usingDriverExecutable(new File(chromeDriverPath))
+	  						.usingAnyFreePort()
+	  						.build();
 	  
-	  driver = new FirefoxDriver();
+	 chromeService.start();	  
+	  
+    driver = new RemoteWebDriver(chromeService.getUrl(),DesiredCapabilities.chrome());
+	  
+	  //driver = new FirefoxDriver();
     
-    baseUrl = "https://apps.facebook.com/airline_manager/route.php?token=flight";
     driver.manage().timeouts().implicitlyWait(30, TimeUnit.SECONDS);
     
   }
@@ -69,7 +83,7 @@ public class StartFlightTest{
     
     //Login To FB
 
-    //Wait 10 seconds until user enters credentials
+    //Wait 20 seconds until user enters credentials
     Thread.sleep(20000);    
 
     WebElement sendInput = driver.findElement(By.id("u_0_0"));
@@ -77,12 +91,51 @@ public class StartFlightTest{
     
     Thread.sleep(5000);
     
-    System.out.println("start...");
+    logger.info("Start..");
+    
+    purchaseFuel();
     
     setupFlights();
     
-    manageAC();
+    try {
+    	manageAC(0);
+    } catch(UnknownServerException e){
+    	logger.info("Error in manageAC: "+e);
+    	driver.close();
+    	testAirlineManager();
+    }
     
+  }
+  
+  private void purchaseFuel() throws InterruptedException {
+	  moveToOverviewTab();
+	  
+	  WebElement fuelCostElement = driver.findElement(By.xpath("//*[@id='indexContent']/table/tbody/tr/td/table[1]/tbody/tr/td[1]/table/tbody/tr[4]/td/table/tbody/tr[5]/td[2]/font"));
+	  
+	  int fuelCost = Integer.valueOf(normalizeString(fuelCostElement.getText()));
+	  
+	  logger.info("Fuel Costing: "+fuelCost);
+	  
+	  if(fuelCost <= MAX_FUEL_VALUE) {
+		  WebElement currentFuel = driver.findElement(By.xpath("//*[@id='fuelheader']"));
+		  int tankCapacityLeft = TANK_CAPACITY - Integer.valueOf(normalizeString(currentFuel.getText()));
+		  
+		  logger.info("Amount to purchase: "+ tankCapacityLeft);
+		  
+		  int acountBalance = getAccountBalance();
+		  
+		  if ((tankCapacityLeft/1000*fuelCost) <= acountBalance) {
+			  logger.info("Account Balance is enogh to purchase maximum fuel");
+			  driver.get(fuelPurchaseUrl+tankCapacityLeft);
+		  }else if (fuelCost <= MIN_FUEL_VALUE){
+			  logger.info("Account Balance is not enogh, and is less than the minimun, purchase maximun posible");
+			  int maxAmountLbsCanPurchase = acountBalance/fuelCost*1000;
+			  driver.get(fuelPurchaseUrl+maxAmountLbsCanPurchase);
+		  }else {
+			  logger.info("Not going to purchase fuel.");
+		  }
+
+	  }
   }
   
   private void setupFlights() throws SQLException, ClassNotFoundException{
@@ -126,19 +179,27 @@ public class StartFlightTest{
 	closeConnection();
   }
   
-  private void manageAC() throws Exception {
-	
+  private void manageAC(int totalSecondsWaited) throws Exception {
+	  
+	  	logger.info("total waited seconds: "+totalSecondsWaited);
+	  
+	  	if(totalSecondsWaited > 3600) {
+	  		//total waiting more than one hour
+	  		totalSecondsWaited = 0;
+	  		purchaseFuel();
+	  	}
+	  
 	  	moveToFlightTab();
 	    
 		WebElement container = driver.findElement(By.xpath("//*[@id='routeStarter']/table/tbody/tr[2]/td[6]"));
 
-		System.out.println("checking flight to start....");
+		logger.info("checking flight to start....");
 		
 		String flightReg = driver.findElement(By.xpath("//*[@id='routeStarter']/table/tbody/tr[2]/td[5]")).getText().trim();
 		
 		if (container.findElements(By.xpath(".//a")).size() != 0 && !flightRegsToSkipStart.contains(flightReg)){
 			
-			System.out.println("starting flight....");
+			logger.info("starting flight....");
 			
 			container.findElement(By.xpath(".//a")).click();
 			Thread.sleep(10000);
@@ -146,12 +207,12 @@ public class StartFlightTest{
 			//Collect data
 			WebElement flewResult = driver.findElement(By.id("singleStart"));
 			
-			String standardPax = flewResult.findElement(By.xpath(".//table[1]/tbody/tr[2]/td[2]")).getText().replace("Pax", "").trim();
-			String businessPax = flewResult.findElement(By.xpath(".//table[1]/tbody/tr[2]/td[3]")).getText().replace("Pax", "").trim();
-			String expenses = flewResult.findElement(By.xpath(".//table[1]/tbody/tr[2]/td[5]/font")).getText().replace("$", "").replace(",", "").trim();
+			String standardPax = normalizeString(flewResult.findElement(By.xpath(".//table[1]/tbody/tr[2]/td[2]")).getText());
+			String businessPax = normalizeString(flewResult.findElement(By.xpath(".//table[1]/tbody/tr[2]/td[3]")).getText());
+			String expenses = normalizeString(flewResult.findElement(By.xpath(".//table[1]/tbody/tr[2]/td[5]/font")).getText());
 			
-			String fuelUsed = flewResult.findElement(By.xpath(".//table[2]/tbody/tr[1]/td[2]/b")).getText().replace("Lbs", "").replace(",", "").trim();
-			String damages = flewResult.findElement(By.xpath(".//table[2]/tbody/tr[2]/td[2]/b")).getText().trim();
+			String fuelUsed = normalizeString(flewResult.findElement(By.xpath(".//table[2]/tbody/tr[1]/td[2]/b")).getText());
+			String damages = normalizeString(flewResult.findElement(By.xpath(".//table[2]/tbody/tr[2]/td[2]/b")).getText());
 			
 			String income;
 			String mealsSold = "0";
@@ -161,13 +222,13 @@ public class StartFlightTest{
 			
 			if(thirdCol.findElement(By.xpath(".//td[1]")).getText().contains("Total expenses:")){
 				//is without catering
-				income = flewResult.findElement(By.xpath(".//table[2]/tbody/tr[4]/td[2]/b/font")).getText().replace("$", "").replace(",", "").trim();
+				income = normalizeString(flewResult.findElement(By.xpath(".//table[2]/tbody/tr[4]/td[2]/b/font")).getText());
 			}else{
 				//is with catering
-				mealsSold = thirdCol.findElement(By.xpath(".//td[2]/b")).getText().trim();
-				cateringIncome = flewResult.findElement(By.xpath(".//table[2]/tbody/tr[4]/td[2]/b/font")).getText().replace("$", "").replace(",", "").trim();
+				mealsSold = normalizeString(thirdCol.findElement(By.xpath(".//td[2]/b")).getText());
+				cateringIncome = normalizeString(flewResult.findElement(By.xpath(".//table[2]/tbody/tr[4]/td[2]/b/font")).getText());
 				
-				income = flewResult.findElement(By.xpath(".//table[2]/tbody/tr[6]/td[2]/b/font")).getText().replace("$", "").replace(",", "").trim();
+				income = normalizeString(flewResult.findElement(By.xpath(".//table[2]/tbody/tr[6]/td[2]/b/font")).getText());
 			}
 			
 			getDBConnection(false);		    
@@ -187,19 +248,19 @@ public class StartFlightTest{
 			
 			closeConnection();
 			
-			manageAC();
+			manageAC(totalSecondsWaited);
 		}else{
 			
 		    WebElement countDown = driver.findElement(By.id("c0"));
 		    String countDownFull = countDown.getText();
 		    
 		    if(countDownFull.trim().equalsIgnoreCase("ready")){
-		    	System.out.println("wait out while getting element value is: "+countDownFull+" ...");
-		    	manageAC();
+		    	logger.info("wait out while getting element value is: "+countDownFull+" ...");
+		    	manageAC(totalSecondsWaited);
 		    	return;
 		    }
 		    
-		    System.out.println("wait for: "+countDownFull+" ...");
+		    logger.info("wait for: "+countDownFull+" ...");
 		    
 		    Long countDownSeconds = Long.valueOf(countDownFull.split(":")[2]);
 		    Long countDownMinutes = Long.valueOf(countDownFull.split(":")[1]);
@@ -210,9 +271,11 @@ public class StartFlightTest{
 		    
 		    Thread.sleep(countDownSeconds * 1000);
 		    
-		    System.out.println("wait finished...");
+		    logger.info("wait finished...");
 		    
-		    manageAC();
+		    totalSecondsWaited = totalSecondsWaited + countDownSeconds.intValue();
+		    
+		    manageAC(totalSecondsWaited);
 		}
   }
   
@@ -231,8 +294,23 @@ public class StartFlightTest{
   private void moveToFlightTab(){
 	//Go to flights tab
     //driver.get(baseUrl);
-	driver.navigate().to(this.baseUrl);
+	driver.navigate().to(flightsUrl);
     driver.switchTo().frame("iframe_canvas_fb_https");	    
+  }
+  
+  private void moveToOverviewTab() {
+	  driver.navigate().to(baseUrl);
+	  driver.switchTo().frame("iframe_canvas_fb_https");
+  }
+  
+  private int getAccountBalance() {
+	  WebElement accountElement = driver.findElement(By.xpath("//*[@id='accountheader']"));
+	  
+	  return Integer.valueOf(normalizeString(accountElement.getText()));
+  }
+  
+  private String normalizeString(String inputString) {
+	  return inputString.replace("$", "").replace(",", "").replace("Pax", "").replace("Lbs", "").replace(",", "").trim();
   }
 
   @After
